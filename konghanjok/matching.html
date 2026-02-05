@@ -315,6 +315,10 @@
     <a href="match.html" class="btn-back">매칭 화면으로 돌아가기</a>
   </div>
 
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+  <script src="firebase-config.js"></script>
   <script src="realtime.js"></script>
   <script>
     (function () {
@@ -352,52 +356,47 @@
       
       // 매칭 찾기 시작
       loadingText.textContent = '매칭 중...';
-      loadingSub.innerHTML = '내 정보: <b>' + myData.model + '</b> · <b>' + mySideText + '</b> 보유<br>' +
-        '찾는 상대: <b>' + needSideText + '</b> 보유자<br><br>' +
-        '💡 <a href="match.html" target="_blank" style="color:#c0392b;font-weight:bold;">새 탭</a>을 열고 <b>' + needSideText + '</b>을 선택해서 테스트하세요!';
+      loadingSub.innerHTML = '🌐 <b>전 세계 플레이어</b>와 실시간 매칭 중...<br><br>' +
+        '내 정보: <b>' + myData.model + '</b> · <b>' + mySideText + '</b> 보유<br>' +
+        '찾는 상대: <b>' + needSideText + '</b> 보유자';
 
       realtime.findMatch(myData);
 
-      // 대기열 상태 체크
-      let statusCheckCount = 0;
+      // 대기열 상태 체크 (Firebase)
       const statusInterval = setInterval(() => {
         if (matchingSide.classList.contains('complete')) {
           clearInterval(statusInterval);
           return;
         }
         
-        statusCheckCount++;
-        const queue = realtime.getQueue();
-        const now = Date.now();
-        const activeQueue = queue.filter(p => !p.roomId && now - p.timestamp < 60000);
-        
-        if (activeQueue.length > 0 && !matchingSide.classList.contains('complete')) {
-          let statusHtml = '내 정보: <b>' + myData.model + '</b> · <b>' + mySideText + '</b> 보유<br>' +
-            '찾는 상대: <b>' + needSideText + '</b> 보유자<br><br>' +
-            '🔍 현재 대기열: <b>' + activeQueue.length + '</b>명<br>';
+        realtime.getQueueInfo(function(info) {
+          if (matchingSide.classList.contains('complete')) return;
           
-          // 매칭 가능한 상대가 있는지 체크
-          const matchableOpponent = activeQueue.find(p => 
-            p.playerId !== realtime.myId &&
-            p.model === myData.model &&
-            p.mySide === myData.needSide
-          );
+          let statusHtml = '🌐 <b>전 세계 플레이어</b>와 실시간 매칭 중...<br><br>' +
+            '내 정보: <b>' + myData.model + '</b> · <b>' + mySideText + '</b> 보유<br>' +
+            '찾는 상대: <b>' + needSideText + '</b> 보유자<br><br>';
           
-          if (matchableOpponent) {
-            statusHtml += '<span style="color:#27ae60;">✓ 매칭 가능한 상대 발견! 잠시만 기다려주세요...</span>';
+          if (info.total > 0) {
+            statusHtml += '🔍 현재 대기열: <b>' + info.total + '</b>명<br>';
+            
+            if (info.hasOpponent) {
+              statusHtml += '<span style="color:#27ae60;">✓ 매칭 가능한 상대 발견! 연결 중...</span>';
+            } else {
+              statusHtml += '<span style="color:#f39c12;">⏳ ' + needSideText + ' 보유자를 기다리는 중...</span>';
+            }
           } else {
-            statusHtml += '💡 <a href="match.html" target="_blank" style="color:#c0392b;font-weight:bold;">새 탭</a>을 열고 <b>' + needSideText + '</b>을 선택하세요!';
+            statusHtml += '<span style="color:#95a5a6;">⏳ 다른 플레이어를 기다리는 중...</span>';
           }
           
           loadingSub.innerHTML = statusHtml;
-        }
-      }, 1000);
+        });
+      }, 2000);
 
       // 매칭 성공 콜백
       realtime.onMatchFound = function(roomId, isHost, opponentData) {
         clearInterval(statusInterval);
         loadingText.textContent = '🎉 매칭 완료!';
-        loadingSub.innerHTML = '<span style="color:#27ae60;font-weight:bold;">상대를 찾았어요!</span>';
+        loadingSub.innerHTML = '<span style="color:#27ae60;font-weight:bold;">실시간 상대를 찾았어요!</span>';
 
         // 게임 데이터 저장
         sessionStorage.setItem('gameRoom', JSON.stringify({
@@ -410,7 +409,7 @@
         // UI 업데이트
         setTimeout(() => {
           matchingSide.classList.add('complete');
-          completeDesc.innerHTML = '실시간 상대를 찾았어요!<br>가위바위보 3판 2선승으로 승부합니다.';
+          completeDesc.innerHTML = '🌐 실시간 상대와 연결되었습니다!<br>가위바위보 3판 2선승으로 승부합니다.';
           
           const params = new URLSearchParams({
             roomId: roomId,

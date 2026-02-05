@@ -1,22 +1,22 @@
-// 실시간 매칭 시스템 (localStorage polling 방식)
-// 같은 브라우저의 다른 탭과 실시간 통신 - 모든 환경에서 작동
+// 실시간 매칭 시스템 (Firebase Realtime Database)
+// 다른 기기/브라우저 간 실시간 통신 지원
 
 const RealtimeMatch = {
   myId: null,
   myData: null,
   roomId: null,
   isHost: false,
-  pollInterval: null,
   onMatchFound: null,
   onOpponentChoice: null,
   onOpponentLeft: null,
-  _processedChoices: new Set(),
-  _lastRoundKey: null,
+  _listeners: [],
+  _matchRef: null,
+  _roomRef: null,
 
   // 초기화
   init: function() {
-    this.myId = 'player_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-    this._processedChoices = new Set();
+    this.myId = this._getUserId();
+    this._listeners = [];
     
     // 페이지 떠날 때 정리
     window.addEventListener('beforeunload', () => {
@@ -27,313 +27,251 @@ const RealtimeMatch = {
     return this;
   },
 
-  // localStorage 키
-  QUEUE_KEY: 'konghanjok_queue',
-  ROOMS_KEY: 'konghanjok_rooms',
-
-  // 대기열 가져오기
-  getQueue: function() {
-    try {
-      return JSON.parse(localStorage.getItem(this.QUEUE_KEY)) || [];
-    } catch(e) {
-      return [];
+  // 유저 ID 생성/가져오기
+  _getUserId: function() {
+    let id = localStorage.getItem('konghanjok_player_id');
+    if (!id) {
+      id = 'player_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+      localStorage.setItem('konghanjok_player_id', id);
     }
-  },
-
-  // 대기열 저장
-  setQueue: function(queue) {
-    localStorage.setItem(this.QUEUE_KEY, JSON.stringify(queue));
-  },
-
-  // 방 정보 가져오기
-  getRoom: function(roomId) {
-    try {
-      const rooms = JSON.parse(localStorage.getItem(this.ROOMS_KEY)) || {};
-      return rooms[roomId];
-    } catch(e) {
-      return null;
-    }
-  },
-
-  // 방 정보 저장
-  setRoom: function(roomId, data) {
-    try {
-      const rooms = JSON.parse(localStorage.getItem(this.ROOMS_KEY)) || {};
-      rooms[roomId] = data;
-      localStorage.setItem(this.ROOMS_KEY, JSON.stringify(rooms));
-    } catch(e) {
-      console.error('[RealtimeMatch] 방 저장 오류:', e);
-    }
+    return id;
   },
 
   // 매칭 시작
   findMatch: function(matchData) {
     this.myData = matchData;
     console.log('[RealtimeMatch] 매칭 시작:', matchData);
-    
-    // 오래된 데이터 정리
-    this.cleanupOldData();
-    
-    // 대기열에 등록
-    const queue = this.getQueue();
-    const now = Date.now();
-    
-    // 오래된 항목 제거 (60초 이상)
-    const freshQueue = queue.filter(p => now - p.timestamp < 60000 && p.playerId !== this.myId);
-    
-    // 내 정보 추가
-    const myEntry = {
-      playerId: this.myId,
-      model: matchData.model,
-      mySide: matchData.mySide,
-      needSide: matchData.needSide,
-      condition: matchData.condition,
-      timestamp: now,
-      roomId: null
-    };
-    
-    freshQueue.push(myEntry);
-    this.setQueue(freshQueue);
-    
-    console.log('[RealtimeMatch] 대기열 등록됨. 현재 대기열:', freshQueue.length, '명');
-    
-    // 매칭 상대 찾기 시작
-    this.startPolling();
-  },
 
-  // 오래된 데이터 정리
-  cleanupOldData: function() {
-    const now = Date.now();
+    // Firebase 연결 확인
+    if (typeof firebase === 'undefined' || !firebase.database) {
+      console.error('[RealtimeMatch] Firebase가 로드되지 않았습니다');
+      alert('Firebase 연결 오류. 설정을 확인하세요.');
+      return;
+    }
+
+    const db = firebase.database();
+    const queueRef = db.ref('matchQueue');
+
+    // 매칭 키 생성 (모델 기반)
+    const matchKey = matchData.model.replace(/\s+/g, '_');
+
+    // 상대방 찾기 (내가 필요한 방향을 가진 사람)
+    const lookingForRef = queueRef.child(matchKey).child(matchData.needSide);
     
-    // 오래된 방 정리
-    try {
-      const rooms = JSON.parse(localStorage.getItem(this.ROOMS_KEY)) || {};
-      const freshRooms = {};
-      for (const [id, room] of Object.entries(rooms)) {
-        if (now - room.createdAt < 300000) { // 5분 이내
-          freshRooms[id] = room;
+    lookingForRef.orderByChild('timestamp').limitToFirst(1).once('value', (snapshot) => {
+      const data = snapshot.val();
+      
+      if (data) {
+        // 매칭 상대 발견!
+        const opponentId = Object.keys(data)[0];
+        const opponentData = data[opponentId];
+        
+        if (opponentId !== this.myId) {
+          console.log('[RealtimeMatch] 상대 발견:', opponentId);
+          this._createRoom(opponentId, opponentData);
+          // 상대를 대기열에서 제거
+          lookingForRef.child(opponentId).remove();
+          return;
         }
       }
-      localStorage.setItem(this.ROOMS_KEY, JSON.stringify(freshRooms));
-    } catch(e) {}
+      
+      // 상대가 없으면 대기열에 등록
+      this._joinQueue(matchKey);
+    });
   },
 
-  // 폴링 시작
-  startPolling: function() {
-    // 기존 인터벌 정리
-    if (this.pollInterval) {
-      clearInterval(this.pollInterval);
-    }
+  // 대기열에 등록
+  _joinQueue: function(matchKey) {
+    const db = firebase.database();
+    const myQueueRef = db.ref('matchQueue/' + matchKey + '/' + this.myData.mySide + '/' + this.myId);
     
-    // 즉시 한번 체크
-    this.checkForMatch();
+    this._matchRef = myQueueRef;
     
-    // 300ms마다 체크 (더 빠른 반응)
-    this.pollInterval = setInterval(() => {
-      if (this.roomId) {
-        this.checkRoomStatus();
-      } else {
-        this.checkForMatch();
+    myQueueRef.set({
+      ...this.myData,
+      playerId: this.myId,
+      timestamp: firebase.database.ServerValue.TIMESTAMP
+    });
+
+    console.log('[RealtimeMatch] 대기열 등록됨');
+
+    // 누군가 나를 찾아서 방을 만들었는지 감시
+    const myRoomRef = db.ref('playerRooms/' + this.myId);
+    myRoomRef.on('value', (snapshot) => {
+      const roomData = snapshot.val();
+      if (roomData && roomData.roomId) {
+        console.log('[RealtimeMatch] 방 초대 받음:', roomData.roomId);
+        this.roomId = roomData.roomId;
+        this.isHost = false;
+        
+        // 대기열에서 제거
+        myQueueRef.remove();
+        myRoomRef.remove();
+        
+        if (this.onMatchFound) {
+          this.onMatchFound(this.roomId, false, roomData.opponentData);
+        }
       }
-    }, 300);
+    });
+    this._listeners.push({ ref: myRoomRef, event: 'value' });
   },
 
-  // 매칭 상대 찾기
-  checkForMatch: function() {
-    if (this.roomId) return;
-    
-    const queue = this.getQueue();
-    const now = Date.now();
-    
-    // 내 항목 찾기
-    let myEntry = queue.find(p => p.playerId === this.myId);
-    
-    if (!myEntry) {
-      // 내가 대기열에 없으면 다시 등록
-      console.log('[RealtimeMatch] 대기열에서 내 항목 없음, 재등록');
-      if (this.myData) {
-        const freshQueue = queue.filter(p => now - p.timestamp < 60000);
-        freshQueue.push({
-          playerId: this.myId,
-          model: this.myData.model,
-          mySide: this.myData.mySide,
-          needSide: this.myData.needSide,
-          condition: this.myData.condition,
-          timestamp: now,
-          roomId: null
-        });
-        this.setQueue(freshQueue);
-      }
-      return;
-    }
-    
-    // 이미 방에 배정됐는지 확인
-    if (myEntry.roomId) {
-      console.log('[RealtimeMatch] 방 배정됨:', myEntry.roomId);
-      this.roomId = myEntry.roomId;
-      this.isHost = myEntry.isHost;
-      if (this.onMatchFound) {
-        this.onMatchFound(this.roomId, this.isHost, myEntry.opponentData);
-      }
-      return;
-    }
-    
-    // 매칭 가능한 상대 찾기 (모델만 일치하면 매칭)
-    const opponent = queue.find(p => 
-      p.playerId !== this.myId &&
-      !p.roomId &&
-      p.model === this.myData.model &&
-      p.mySide === this.myData.needSide &&
-      p.needSide === this.myData.mySide &&
-      now - p.timestamp < 60000
-    );
-    
-    if (opponent) {
-      console.log('[RealtimeMatch] 상대 발견!', opponent.playerId);
-      this.createRoom(opponent);
-    } else {
-      // 대기열 상태 로그
-      const waitingPlayers = queue.filter(p => !p.roomId && now - p.timestamp < 60000);
-      if (waitingPlayers.length > 1) {
-        console.log('[RealtimeMatch] 대기 중인 플레이어:', waitingPlayers.length, '명');
-        waitingPlayers.forEach(p => {
-          console.log('  -', p.playerId.substr(0, 15), '모델:', p.model, '보유:', p.mySide, '필요:', p.needSide);
-        });
-      }
-    }
-  },
-
-  // 방 생성
-  createRoom: function(opponent) {
-    if (this.roomId) return;
-    
+  // 방 생성 (호스트)
+  _createRoom: function(opponentId, opponentData) {
+    const db = firebase.database();
     const roomId = 'room_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+    
     this.roomId = roomId;
     this.isHost = true;
-    
-    console.log('[RealtimeMatch] 방 생성:', roomId);
-    
+
     // 방 정보 저장
-    this.setRoom(roomId, {
+    const roomRef = db.ref('gameRooms/' + roomId);
+    roomRef.set({
       hostId: this.myId,
-      guestId: opponent.playerId,
+      guestId: opponentId,
       hostChoice: null,
       guestChoice: null,
       round: 1,
       status: 'playing',
-      createdAt: Date.now()
+      createdAt: firebase.database.ServerValue.TIMESTAMP
     });
-    
-    // 대기열 업데이트 (양쪽 다 방 배정)
-    const queue = this.getQueue();
-    const updatedQueue = queue.map(p => {
-      if (p.playerId === this.myId) {
-        return { ...p, roomId: roomId, isHost: true, opponentData: opponent };
-      }
-      if (p.playerId === opponent.playerId) {
-        return { ...p, roomId: roomId, isHost: false, opponentData: this.myData };
-      }
-      return p;
+
+    // 상대에게 방 정보 알림
+    db.ref('playerRooms/' + opponentId).set({
+      roomId: roomId,
+      opponentData: this.myData
     });
-    this.setQueue(updatedQueue);
-    
+
+    console.log('[RealtimeMatch] 방 생성:', roomId);
+
     if (this.onMatchFound) {
-      this.onMatchFound(roomId, true, opponent);
+      this.onMatchFound(roomId, true, opponentData);
     }
   },
 
-  // 방 참가
+  // 방 참가 (게임 페이지에서 호출)
   joinRoom: function(roomId, isHost) {
     this.roomId = roomId;
     this.isHost = isHost;
-    this._processedChoices = new Set();
+    
     console.log('[RealtimeMatch] 방 참가:', roomId, '호스트:', isHost);
-    this.startPolling();
-  },
+    
+    const db = firebase.database();
+    const roomRef = db.ref('gameRooms/' + roomId);
+    this._roomRef = roomRef;
 
-  // 방 상태 확인
-  checkRoomStatus: function() {
-    const room = this.getRoom(this.roomId);
-    if (!room) return;
-    
-    // 상대가 선택했는지 확인
-    const opponentChoice = this.isHost ? room.guestChoice : room.hostChoice;
-    const roundKey = this.roomId + '_' + room.round + '_' + opponentChoice;
-    
-    if (opponentChoice && !this._processedChoices.has(roundKey)) {
-      console.log('[RealtimeMatch] 상대 선택 감지:', opponentChoice, 'round:', room.round);
-      this._processedChoices.add(roundKey);
-      if (this.onOpponentChoice) {
+    // 상대 선택 감시
+    roomRef.on('value', (snapshot) => {
+      const room = snapshot.val();
+      if (!room) {
+        if (this.onOpponentLeft) this.onOpponentLeft();
+        return;
+      }
+
+      // 상대 선택 확인
+      const opponentChoice = isHost ? room.guestChoice : room.hostChoice;
+      if (opponentChoice && this.onOpponentChoice) {
         this.onOpponentChoice(opponentChoice);
       }
-    }
-    
-    // 상대가 나갔는지 확인
-    if (room.status === 'abandoned' && this.onOpponentLeft) {
-      this.onOpponentLeft();
-    }
+
+      // 상대 나감 확인
+      if (room.status === 'abandoned' && this.onOpponentLeft) {
+        this.onOpponentLeft();
+      }
+    });
+    this._listeners.push({ ref: roomRef, event: 'value' });
   },
 
   // 선택 전송
   sendChoice: function(choice) {
-    const room = this.getRoom(this.roomId);
-    if (!room) {
+    if (!this.roomId) {
       console.error('[RealtimeMatch] 방 정보 없음');
       return;
     }
+
+    const db = firebase.database();
+    const choiceKey = this.isHost ? 'hostChoice' : 'guestChoice';
     
-    console.log('[RealtimeMatch] 선택 전송:', choice, '호스트:', this.isHost);
-    
-    if (this.isHost) {
-      room.hostChoice = choice;
-    } else {
-      room.guestChoice = choice;
-    }
-    
-    this.setRoom(this.roomId, room);
+    db.ref('gameRooms/' + this.roomId + '/' + choiceKey).set(choice);
+    console.log('[RealtimeMatch] 선택 전송:', choice);
   },
 
   // 라운드 리셋
   resetRound: function() {
-    const room = this.getRoom(this.roomId);
-    if (!room) return;
+    if (!this.roomId) return;
+
+    const db = firebase.database();
+    const roomRef = db.ref('gameRooms/' + this.roomId);
     
-    room.hostChoice = null;
-    room.guestChoice = null;
-    room.round = (room.round || 1) + 1;
+    roomRef.update({
+      hostChoice: null,
+      guestChoice: null,
+      round: firebase.database.ServerValue.increment(1)
+    });
     
-    this.setRoom(this.roomId, room);
-    console.log('[RealtimeMatch] 라운드 리셋, 다음 라운드:', room.round);
+    console.log('[RealtimeMatch] 라운드 리셋');
+  },
+
+  // 대기열 정보 가져오기 (UI용)
+  getQueueInfo: function(callback) {
+    if (!this.myData) return;
+    
+    const db = firebase.database();
+    const matchKey = this.myData.model.replace(/\s+/g, '_');
+    const queueRef = db.ref('matchQueue/' + matchKey);
+    
+    queueRef.once('value', (snapshot) => {
+      const data = snapshot.val() || {};
+      let total = 0;
+      let hasOpponent = false;
+      
+      // 내가 필요한 방향에 상대가 있는지
+      const needSideData = data[this.myData.needSide] || {};
+      const needSideCount = Object.keys(needSideData).filter(id => id !== this.myId).length;
+      
+      // 내 방향 대기자 수
+      const mySideData = data[this.myData.mySide] || {};
+      const mySideCount = Object.keys(mySideData).length;
+      
+      total = needSideCount + mySideCount;
+      hasOpponent = needSideCount > 0;
+      
+      callback({
+        total: total,
+        hasOpponent: hasOpponent,
+        needSideCount: needSideCount,
+        mySideCount: mySideCount
+      });
+    });
   },
 
   // 나가기
   leave: function() {
     console.log('[RealtimeMatch] 나가기');
     
-    if (this.pollInterval) {
-      clearInterval(this.pollInterval);
-      this.pollInterval = null;
-    }
-    
+    // 리스너 제거
+    this._listeners.forEach(({ ref, event }) => {
+      ref.off(event);
+    });
+    this._listeners = [];
+
     // 대기열에서 제거
-    const queue = this.getQueue();
-    const newQueue = queue.filter(p => p.playerId !== this.myId);
-    this.setQueue(newQueue);
-    
+    if (this._matchRef) {
+      this._matchRef.remove();
+    }
+
     // 방 상태 업데이트
-    if (this.roomId) {
-      const room = this.getRoom(this.roomId);
-      if (room) {
-        room.status = 'abandoned';
-        this.setRoom(this.roomId, room);
-      }
+    if (this._roomRef) {
+      this._roomRef.update({ status: 'abandoned' });
     }
   },
 
-  // 대기열 초기화 (디버깅용)
+  // 디버깅용: 전체 대기열 초기화
   clearAll: function() {
-    localStorage.removeItem(this.QUEUE_KEY);
-    localStorage.removeItem(this.ROOMS_KEY);
+    const db = firebase.database();
+    db.ref('matchQueue').remove();
+    db.ref('gameRooms').remove();
+    db.ref('playerRooms').remove();
     console.log('[RealtimeMatch] 모든 데이터 초기화됨');
   }
 };
