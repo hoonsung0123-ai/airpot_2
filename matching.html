@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI 매칭 중 | 콩한쪽</title>
+  <title>실시간 매칭 중 | 콩한쪽</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -315,13 +315,19 @@
     <a href="match.html" class="btn-back">매칭 화면으로 돌아가기</a>
   </div>
 
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  
   <script>
     (function () {
-      const MATCH_DURATION_MS = 4000;
       const key = 'matchPending';
       const data = sessionStorage.getItem(key);
 
       const matchingSide = document.getElementById('matchingSide');
+      const loadingText = matchingSide.querySelector('.loading-text');
+      const loadingSub = matchingSide.querySelector('.loading-sub');
       const completeDesc = document.getElementById('completeDesc');
       const btnGameEntry = document.getElementById('btnGameEntry');
       const noMatchMsg = document.getElementById('noMatchMsg');
@@ -332,38 +338,176 @@
         return;
       }
 
-      let payload;
+      let myData;
       try {
-        payload = JSON.parse(data);
+        myData = JSON.parse(data);
       } catch (e) {
         noMatchMsg.classList.remove('hidden');
         document.querySelector('.page').style.display = 'none';
         return;
       }
 
-      if (payload.noMatch) {
-        matchingSide.querySelector('.loading-content').innerHTML = '<p class="loading-text">매칭 결과 없음</p>';
-        setTimeout(() => {
-          sessionStorage.removeItem(key);
-          noMatchMsg.classList.remove('hidden');
-          document.querySelector('.page').classList.add('hidden');
-        }, 1500);
-        return;
+      // Firebase 매칭 시스템
+      const queueRef = database.ref('matchQueue');
+      const roomsRef = database.ref('rooms');
+      let myQueueRef = null;
+      let matchListener = null;
+      let roomListener = null;
+
+      // 매칭 대기열에 등록
+      function joinQueue() {
+        myQueueRef = queueRef.push();
+        myQueueRef.set({
+          userId: myData.userId,
+          model: myData.model,
+          mySide: myData.mySide,
+          needSide: myData.needSide,
+          condition: myData.condition,
+          usageMonths: myData.usageMonths,
+          timestamp: firebase.database.ServerValue.TIMESTAMP,
+          status: 'waiting'
+        });
+
+        // 연결 끊길 때 대기열에서 제거
+        myQueueRef.onDisconnect().remove();
+
+        // 매칭 상대 찾기 시작
+        findMatch();
       }
 
-      const params = new URLSearchParams({
-        mySide: payload.mySide,
-        model: payload.model,
-        condition: payload.condition,
-        oppModel: payload.oppModel,
-        oppSide: payload.oppSide,
-        oppCondition: payload.oppCondition
-      });
-      btnGameEntry.href = 'destiny.html?' + params.toString();
+      // 매칭 상대 찾기
+      function findMatch() {
+        loadingText.textContent = '매칭 중...';
+        loadingSub.textContent = '같은 모델의 상대를 찾고 있어요';
 
+        matchListener = queueRef.orderByChild('timestamp').on('value', (snapshot) => {
+          const queue = [];
+          snapshot.forEach((child) => {
+            if (child.key !== myQueueRef.key) {
+              queue.push({ key: child.key, ...child.val() });
+            }
+          });
+
+          // 매칭 가능한 상대 찾기 (같은 모델, 반대 방향)
+          const match = queue.find(p => 
+            p.model === myData.model && 
+            p.mySide === myData.needSide &&
+            p.needSide === myData.mySide &&
+            p.status === 'waiting'
+          );
+
+          if (match) {
+            // 매칭 성공! 방 생성
+            createRoom(match);
+          }
+        });
+
+        // 내 상태가 'matched'로 변경되면 방으로 이동
+        myQueueRef.on('value', (snapshot) => {
+          const val = snapshot.val();
+          if (val && val.status === 'matched' && val.roomId) {
+            goToRoom(val.roomId, val.isHost);
+          }
+        });
+      }
+
+      // 방 생성 (먼저 찾은 사람이 호스트)
+      function createRoom(opponent) {
+        const roomId = 'room_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+        
+        // 방 생성
+        roomsRef.child(roomId).set({
+          createdAt: firebase.database.ServerValue.TIMESTAMP,
+          status: 'waiting',
+          host: {
+            oderId: myData.userId,
+            model: myData.model,
+            side: myData.mySide,
+            condition: myData.condition,
+            score: 0
+          },
+          guest: {
+            oderId: opponent.userId,
+            model: opponent.model,
+            side: opponent.mySide,
+            condition: opponent.condition,
+            score: 0
+          },
+          currentRound: 1,
+          hostChoice: null,
+          guestChoice: null
+        });
+
+        // 양쪽 대기열 상태 업데이트
+        myQueueRef.update({ status: 'matched', roomId: roomId, isHost: true });
+        queueRef.child(opponent.key).update({ status: 'matched', roomId: roomId, isHost: false });
+      }
+
+      // 방으로 이동
+      function goToRoom(roomId, isHost) {
+        // 리스너 정리
+        if (matchListener) queueRef.off('value', matchListener);
+        
+        loadingText.textContent = '매칭 완료!';
+        loadingSub.textContent = '상대를 찾았어요!';
+
+        // 게임 정보 저장
+        const gameData = {
+          roomId: roomId,
+          isHost: isHost,
+          model: myData.model,
+          mySide: myData.mySide,
+          condition: myData.condition,
+          oppModel: myData.model,
+          oppSide: myData.needSide,
+          oppCondition: myData.condition
+        };
+        sessionStorage.setItem('gameData', JSON.stringify(gameData));
+
+        // UI 업데이트
+        setTimeout(() => {
+          matchingSide.classList.add('complete');
+          completeDesc.innerHTML = '상대를 찾았어요!<br>실시간으로 게임을 진행합니다.';
+          
+          const params = new URLSearchParams({
+            roomId: roomId,
+            isHost: isHost,
+            mySide: myData.mySide,
+            model: myData.model,
+            condition: myData.condition
+          });
+          btnGameEntry.href = 'destiny.html?' + params.toString();
+        }, 500);
+
+        // 대기열에서 제거
+        setTimeout(() => {
+          if (myQueueRef) myQueueRef.remove();
+        }, 2000);
+      }
+
+      // 페이지 떠날 때 정리
+      window.addEventListener('beforeunload', () => {
+        if (myQueueRef) myQueueRef.remove();
+      });
+
+      // 매칭 시작
+      joinQueue();
+
+      // 30초 타임아웃
       setTimeout(() => {
-        matchingSide.classList.add('complete');
-      }, MATCH_DURATION_MS);
+        if (!matchingSide.classList.contains('complete')) {
+          loadingText.textContent = '매칭 대기 중...';
+          loadingSub.textContent = '아직 상대가 없어요. 잠시만 기다려주세요!';
+        }
+      }, 30000);
+
+      // 60초 후에도 매칭 안되면 안내
+      setTimeout(() => {
+        if (!matchingSide.classList.contains('complete')) {
+          loadingText.textContent = '매칭 대기 중...';
+          loadingSub.textContent = '현재 대기 중인 상대가 없습니다. 잠시 후 다시 시도해주세요.';
+        }
+      }, 60000);
     })();
   </script>
 </body>

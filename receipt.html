@@ -296,9 +296,36 @@
     </div>
   </div>
 
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  
   <script>
+    // URL 파라미터 확인
+    const params = new URLSearchParams(location.search);
+    const roomId = params.get('roomId');
+    const winner = params.get('winner');
+
+    // 승자만 이 페이지를 볼 수 있음
+    if (roomId && winner) {
+      // Firebase에서 게임 정보 가져오기
+      const roomRef = database.ref('rooms/' + roomId);
+      roomRef.once('value').then((snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          // 결제 완료 후 방 정리
+          document.getElementById('btnPay').addEventListener('click', () => {
+            alert('결제 기능은 준비 중입니다.\n실제 서비스에서는 결제 시스템이 연동됩니다.');
+            // 방 정리
+            roomRef.update({ paymentStatus: 'completed' });
+          });
+        }
+      });
+    }
+
     document.getElementById('btnPay').addEventListener('click', () => {
-      alert('결제 기능은 준비 중입니다.');
+      alert('🎉 축하합니다!\n결제 기능은 준비 중입니다.\n실제 서비스에서는 결제 시스템이 연동됩니다.');
     });
 
     var shareUrl = (function() {
@@ -306,7 +333,7 @@
       var path = window.location.pathname.replace(/\/receipt\.html$/, '') || '';
       return origin + path + (path.endsWith('/') ? '' : '/') + 'index.html';
     })();
-    var shareText = '콩한쪽 — 잃어버린 에어팟을 건 운명의 게임 🎧';
+    var shareText = '콩한쪽에서 실시간 대결로 에어팟 완전체를 획득했어요! 🎧✨';
 
     document.getElementById('shareKakao').addEventListener('click', function(e) {
       e.preventDefault();
