@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>실시간 대결 | 콩한쪽</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #f5e6e6;
+      --muted: #a08080;
+      --brand: #c0392b;
+      --brand-strong: #922b21;
+      --accent: #27ae60;
+      --danger: #e74c3c;
+      --dark: #0d0808;
+      --dark-surface: rgba(255, 255, 255, 0.06);
+      --glow: rgba(192, 57, 43, 0.5);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      font-family: 'Noto Sans KR', sans-serif;
+      background: var(--dark);
+      color: #fff;
+      overflow-x: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .page {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      padding-bottom: max(20px, env(safe-area-inset-bottom));
+      position: relative;
+    }
+
+    .page::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(80% 80% at 50% 20%, rgba(192, 57, 43, 0.2) 0%, transparent 50%),
+                  radial-gradient(60% 60% at 80% 80%, rgba(146, 43, 33, 0.15) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .page.result-win::before {
+      background: radial-gradient(100% 100% at 50% 50%, rgba(241, 196, 15, 0.15) 0%, transparent 60%),
+                  radial-gradient(80% 80% at 50% 20%, rgba(192, 57, 43, 0.15) 0%, transparent 50%);
+    }
+
+    .page.result-miss::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(180deg,
+        rgba(120, 20, 20, 0.7) 0%,
+        rgba(80, 10, 10, 0.85) 50%,
+        rgba(100, 15, 15, 0.75) 100%);
+      animation: crisisPulse 0.7s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .page.result-miss .result-text,
+    .page.result-miss .next-text,
+    .page.result-miss .hand-card,
+    .page.result-miss .vs-divider {
+      position: relative;
+      z-index: 3;
+    }
+
+    @keyframes crisisPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .back-link {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      color: rgba(255,255,255,0.7);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9rem;
+      z-index: 10;
+    }
+    .back-link:hover { color: #fff; }
+
+    .title-samsepan {
+      font-size: clamp(2rem, 10vw, 3.5rem);
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      margin: 0 0 8px;
+      text-align: center;
+      position: relative;
+      z-index: 1;
+      color: #fff;
+      text-shadow: 0 0 30px var(--glow), 0 2px 10px rgba(0,0,0,0.5);
+    }
+
+    .score-board {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: clamp(14px, 3vw, 20px);
+      margin-bottom: 28px;
+      padding: clamp(20px, 5vw, 28px) clamp(24px, 6vw, 36px);
+      background: var(--dark-surface);
+      border-radius: var(--radius);
+      border: 2px solid rgba(255,255,255,0.08);
+      position: relative;
+      z-index: 1;
+      min-width: min(100%, 320px);
+    }
+
+    .score-board .score-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: clamp(20px, 5vw, 28px);
+      font-size: clamp(1.3rem, 5vw, 1.8rem);
+      font-weight: 800;
+      letter-spacing: 0.05em;
+    }
+
+    .score-board .mine { color: var(--accent); }
+    .score-board .theirs { color: var(--danger); }
+    .score-board .sep { color: rgba(255,255,255,0.4); font-weight: 600; }
+    .score-board .num {
+      min-width: 2.2em;
+      text-align: center;
+      font-size: 1.8em;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+    }
+    #myScore { color: var(--accent); text-shadow: 0 0 24px rgba(39, 174, 96, 0.6); }
+    #theirScore { color: var(--danger); text-shadow: 0 0 24px rgba(231, 76, 60, 0.6); }
+
+    .score-units {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: clamp(48px, 12vw, 80px);
+    }
+
+    .score-unit {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .score-unit .unit-text {
+      font-size: clamp(1rem, 2.8vw, 1.2rem);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .score-unit.mine .unit-text { color: var(--accent); }
+    .score-unit.theirs .unit-text { color: var(--danger); }
+
+    .score-unit .unit-info-small {
+      font-size: clamp(0.7rem, 1.8vw, 0.82rem);
+      font-weight: 500;
+      color: rgba(255,255,255,0.55);
+      text-align: center;
+      line-height: 1.35;
+      max-width: 100px;
+    }
+
+    .score-unit.mine .unit-info-small { color: rgba(39, 174, 96, 0.85); }
+    .score-unit.theirs .unit-info-small { color: rgba(231, 76, 60, 0.85); }
+
+    .round-label {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 28px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      position: relative;
+      z-index: 1;
+    }
+
+    .capsule-hint {
+      font-size: clamp(0.95rem, 2.5vw, 1.05rem);
+      color: rgba(255,255,255,0.7);
+      text-align: center;
+      max-width: 320px;
+      margin-bottom: 28px;
+      line-height: 1.5;
+      position: relative;
+      z-index: 1;
+    }
+
+    .rps-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      justify-content: center;
+      margin-bottom: 32px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .rps-btn {
+      min-width: clamp(100px, 28vw, 140px);
+      padding: clamp(20px, 5vw, 28px) clamp(24px, 6vw, 36px);
+      border-radius: var(--radius);
+      border: 3px solid rgba(192, 57, 43, 0.5);
+      background: var(--dark-surface);
+      color: #fff;
+      font-size: clamp(1.1rem, 3.5vw, 1.4rem);
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      backdrop-filter: blur(8px);
+    }
+
+    .rps-btn:hover:not(:disabled) {
+      border-color: var(--brand);
+      background: rgba(192, 57, 43, 0.2);
+      transform: scale(1.04);
+      box-shadow: 0 0 30px var(--glow);
+    }
+
+    .rps-btn:active:not(:disabled) { transform: scale(0.98); }
+    .rps-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .capsule-area {
+      min-height: clamp(160px, 40vw, 220px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    .capsule-wrap {
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .capsule-wrap.visible {
+      display: flex;
+      animation: capsuleAppear 0.5s ease forwards;
+    }
+
+    @keyframes capsuleAppear {
+      from { opacity: 0; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    /* 계란형: 아래가 넓고 위가 좁음. 뚜껑이 분리되어 올라감 */
+    .capsule {
+      position: relative;
+      width: clamp(100px, 32vw, 180px);
+      height: clamp(140px, 40vw, 240px);
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+    }
+
+    .capsule-body {
+      width: 78%;
+      height: 58%;
+      border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+      background: linear-gradient(170deg, rgba(192, 57, 43, 0.4), rgba(146, 43, 33, 0.25));
+      border: 3px solid rgba(192, 57, 43, 0.6);
+      box-shadow: inset 0 16px 32px rgba(255,255,255,0.1),
+                  0 0 50px var(--glow),
+                  0 16px 32px rgba(0,0,0,0.4);
+    }
+
+    .capsule-lid {
+      position: absolute;
+      bottom: 42%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 82%;
+      height: 42%;
+      border-radius: 50% 50% 50% 50% / 100% 100% 0 0;
+      background: linear-gradient(0deg, rgba(192, 57, 43, 0.5), rgba(146, 43, 33, 0.35));
+      border: 3px solid rgba(192, 57, 43, 0.6);
+      border-bottom: none;
+      box-shadow: 0 -6px 20px rgba(255,255,255,0.08), 0 0 35px var(--glow);
+      transform-origin: center bottom;
+      transition: transform 0.7s cubic-bezier(0.34, 1.4, 0.64, 1);
+    }
+
+    .capsule.capsule-open .capsule-lid {
+      transform: translateX(-50%) translateY(-100%) rotate(-25deg);
+    }
+
+    .capsule-wrap.hidden { display: none !important; }
+
+    .reveal-area {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      width: 100%;
+      max-width: 400px;
+      animation: revealAppear 0.6s ease forwards;
+    }
+
+    .reveal-area.visible {
+      display: flex;
+    }
+
+    @keyframes revealAppear {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .reveal-hands {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: stretch;
+      gap: clamp(12px, 4vw, 24px);
+      width: 100%;
+      max-width: 420px;
+    }
+
+    .hand-card {
+      padding: clamp(18px, 4vw, 28px);
+      border-radius: var(--radius);
+      background: var(--dark-surface);
+      border: 3px solid rgba(255,255,255,0.12);
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      opacity: 0;
+      transform: translateY(20px);
+      animation: handReveal 0.6s ease forwards;
+      backdrop-filter: blur(12px);
+    }
+
+    .hand-card.mine {
+      border-color: rgba(39, 174, 96, 0.5);
+      box-shadow: 0 0 30px rgba(39, 174, 96, 0.2);
+      animation-delay: 0.15s;
+      animation-fill-mode: both;
+    }
+
+    .hand-card.theirs {
+      border-color: rgba(231, 76, 60, 0.4);
+      box-shadow: 0 0 30px rgba(231, 76, 60, 0.15);
+      animation-delay: 0.35s;
+      animation-fill-mode: both;
+    }
+
+    @keyframes handReveal {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .hand-emoji {
+      display: block;
+      font-size: clamp(3rem, 12vw, 5rem);
+      margin-bottom: 8px;
+      line-height: 1;
+    }
+
+    .hand-name {
+      font-size: clamp(0.9rem, 2.5vw, 1.1rem);
+      font-weight: 700;
+      color: rgba(255,255,255,0.8);
+    }
+
+    .hand-card.mine .hand-name { color: var(--accent); }
+    .hand-card.theirs .hand-name { color: rgba(255,255,255,0.7); }
+
+    .reveal-hands .vs-divider {
+      font-size: clamp(1.1rem, 3.5vw, 1.4rem);
+      font-weight: 900;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 0.15em;
+      display: flex;
+      align-items: center;
+    }
+
+    .result-text {
+      font-size: clamp(1rem, 2.8vw, 1.2rem);
+      font-weight: 700;
+      text-align: center;
+      min-height: 52px;
+      padding: 0 12px;
+      line-height: 1.4;
+      position: relative;
+      z-index: 1;
+    }
+
+    .result-text.win {
+      color: var(--accent);
+      text-shadow: 0 0 24px rgba(39, 174, 96, 0.5);
+      animation: winnerGrow 0.6s ease-out forwards;
+    }
+    .result-text.miss { color: #ff6b6b; text-shadow: 0 0 24px rgba(231, 76, 60, 0.6); }
+    .result-text.draw { color: rgba(255,255,255,0.7); }
+
+    @keyframes winnerGrow {
+      0% { opacity: 0; transform: scale(0.7); }
+      60% { transform: scale(1.15); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+
+    .result-popup {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      font-size: clamp(2rem, 10vw, 3.5rem);
+      font-weight: 900;
+      text-align: center;
+      padding: 24px 48px;
+      border-radius: var(--radius);
+      z-index: 200;
+      pointer-events: none;
+    }
+
+    .result-popup.hidden {
+      display: none !important;
+    }
+
+    .result-popup.visible {
+      opacity: 1;
+      visibility: visible;
+      animation: resultPopupIn 0.5s ease forwards;
+    }
+
+    .result-popup.hiding {
+      animation: resultPopupOut 0.4s ease forwards;
+    }
+
+    .result-popup.win {
+      color: #fff;
+      background: rgba(39, 174, 96, 0.9);
+      text-shadow: 0 0 30px rgba(39, 174, 96, 0.8);
+      box-shadow: 0 0 60px rgba(39, 174, 96, 0.5);
+    }
+
+    .result-popup.miss {
+      color: #fff;
+      background: rgba(231, 76, 60, 0.95);
+      text-shadow: 0 0 30px rgba(180, 30, 30, 0.9);
+      box-shadow: 0 0 60px rgba(231, 76, 60, 0.6);
+    }
+
+    .result-popup.draw {
+      color: #fff;
+      background: rgba(120, 120, 120, 0.85);
+      text-shadow: 0 0 24px rgba(255, 255, 255, 0.4);
+      box-shadow: 0 0 50px rgba(255, 255, 255, 0.15);
+    }
+
+    @keyframes resultPopupIn {
+      0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+      70% { transform: translate(-50%, -50%) scale(1.1); }
+      100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+
+    @keyframes resultPopupOut {
+      0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -50%) scale(1.05); }
+    }
+
+    .next-text {
+      font-size: clamp(0.9rem, 2.5vw, 1rem);
+      color: rgba(255,255,255,0.6);
+      text-align: center;
+      min-height: 44px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .btn-reset {
+      margin-top: 20px;
+      padding: 18px 36px;
+      border-radius: var(--radius);
+      border: none;
+      background: linear-gradient(130deg, var(--brand-strong), var(--brand));
+      color: #fff;
+      font-size: 1.05rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 0 40px var(--glow);
+      transition: transform 0.2s ease;
+      position: relative;
+      z-index: 1;
+    }
+
+    .btn-reset:hover { transform: scale(1.05); }
+    .btn-reset.hidden { display: none !important; }
+
+    .tension-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(13, 15, 26, 0.92);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s ease;
+    }
+
+    .tension-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .tension-text {
+      font-size: clamp(1.2rem, 4.5vw, 1.8rem);
+      font-weight: 900;
+      text-align: center;
+      color: #fff;
+      text-shadow: 0 0 40px var(--glow);
+      padding: 24px;
+      animation: tensionPulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes tensionPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.02); }
+    }
+
+    /* 빵빠레 승리 연출 */
+    .celebration-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 190;
+      overflow: hidden;
+    }
+
+    .celebration-overlay.hidden { display: none !important; }
+    .celebration-overlay.visible {
+      display: block;
+    }
+
+    .confetti {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      animation: confettiFall 3s linear infinite;
+    }
+    .confetti-once {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      animation: confettiFallOnce 2s ease-out forwards;
+    }
+
+    @keyframes confettiFall {
+      0% {
+        opacity: 1;
+        transform: translateY(-20px) rotate(0deg);
+      }
+      100% {
+        opacity: 0.9;
+        transform: translateY(100vh) rotate(720deg);
+      }
+    }
+    @keyframes confettiFallOnce {
+      0% {
+        opacity: 1;
+        transform: translateY(-20px) rotate(0deg);
+      }
+      100% {
+        opacity: 0;
+        transform: translateY(100vh) rotate(720deg);
+      }
+    }
+
+    /* 매치포인트 오버레이 */
+    .matchpoint-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 150;
+      pointer-events: none;
+      background: linear-gradient(135deg,
+        rgba(192, 57, 43, 0.4) 0%,
+        rgba(146, 43, 33, 0.5) 30%,
+        rgba(80, 20, 20, 0.6) 60%,
+        rgba(192, 57, 43, 0.35) 100%);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.5s ease, visibility 0.5s ease;
+    }
+
+    .matchpoint-overlay.visible {
+      opacity: 1;
+      visibility: visible;
+      animation: matchpointBgPulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes matchpointBgPulse {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.15); }
+    }
+
+    .matchpoint-text {
+      font-size: clamp(2.5rem, 14vw, 5rem);
+      font-weight: 900;
+      letter-spacing: 0.15em;
+      color: #fff;
+      text-shadow:
+        0 0 20px rgba(255, 255, 255, 0.8),
+        0 0 50px rgba(241, 196, 15, 0.6),
+        0 0 80px rgba(192, 57, 43, 0.5);
+      animation: matchpointTextShine 2s ease-in-out infinite;
+    }
+
+    @keyframes matchpointTextShine {
+      0%, 100% {
+        transform: scale(1);
+        text-shadow: 0 0 20px rgba(255,255,255,0.8), 0 0 50px rgba(241,196,15,0.6), 0 0 80px rgba(192,57,43,0.5);
+      }
+      50% {
+        transform: scale(1.08);
+        text-shadow: 0 0 40px rgba(255,255,255,1), 0 0 80px rgba(241,196,15,0.9), 0 0 120px rgba(192,57,43,0.7);
+      }
+    }
+
+    .matchpoint-overlay.hidden { display: none !important; }
+
+    /* 패배: 문구 + 메인으로 돌아가기 */
+    .lose-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(13, 8, 8, 0.9);
+      z-index: 180;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 28px;
+      padding: 20px;
+    }
+    .lose-overlay.visible { display: flex; }
+    .lose-overlay.hidden { display: none !important; }
+    .lose-message {
+      font-size: clamp(1rem, 3vw, 1.2rem);
+      font-weight: 600;
+      color: #fff;
+      text-align: center;
+      line-height: 1.6;
+      max-width: 320px;
+      opacity: 0;
+      animation: loseMessageIn 0.6s ease 0.3s forwards;
+    }
+    @keyframes loseMessageIn {
+      to { opacity: 1; }
+    }
+
+    /* 승리: 문구 + 메인으로 돌아가기 */
+    .win-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(13, 8, 8, 0.85);
+      z-index: 180;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 28px;
+      padding: 20px;
+    }
+    .win-overlay.visible { display: flex; }
+    .win-overlay.hidden { display: none !important; }
+    .win-overlay .complete-airpods-wrap {
+      max-width: min(360px, 85vw);
+      max-height: 240px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      animation: winMessageIn 0.6s ease 0.1s forwards;
+    }
+    .win-overlay .complete-airpods-wrap img {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      filter: drop-shadow(0 8px 24px rgba(0,0,0,0.4));
+    }
+    .win-message {
+      font-size: clamp(1.1rem, 3.5vw, 1.35rem);
+      font-weight: 700;
+      color: var(--accent);
+      text-align: center;
+      line-height: 1.5;
+      max-width: 300px;
+      opacity: 0;
+      animation: winMessageIn 0.6s ease 0.3s forwards;
+      text-shadow: 0 0 20px rgba(39, 174, 96, 0.5);
+    }
+    @keyframes winMessageIn {
+      to { opacity: 1; }
+    }
+
+    .btn-to-main {
+      display: inline-block;
+      padding: 16px 32px;
+      border-radius: var(--radius);
+      border: none;
+      background: linear-gradient(130deg, var(--brand-strong), var(--brand));
+      color: #fff;
+      font-size: 1.05rem;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 0 0 40px var(--glow);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      opacity: 0;
+      animation: winMessageIn 0.5s ease 0.5s forwards;
+    }
+    .btn-to-main:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 50px var(--glow);
+    }
+
+    /* 에어팟 수령: 밀어서 통화하기 스타일 */
+    .slide-to-receive {
+      width: 100%;
+      max-width: 240px;
+      opacity: 0;
+      animation: winMessageIn 0.5s ease 0.5s forwards;
+    }
+    .slide-track {
+      position: relative;
+      width: 100%;
+      height: 64px;
+      border-radius: 32px;
+      background: rgba(255,255,255,0.15);
+      border: 2px solid rgba(255,255,255,0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .slide-label {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: rgba(255,255,255,0.8);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .slide-thumb {
+      position: absolute;
+      left: 4px;
+      top: 4px;
+      width: 52px;
+      height: 52px;
+      border-radius: 26px;
+      background: linear-gradient(130deg, var(--brand-strong), var(--brand));
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      cursor: grab;
+      z-index: 1;
+      transition: left 0.1s ease-out;
+    }
+    .slide-thumb:active { cursor: grabbing; }
+    .slide-track.slide-done .slide-thumb {
+      left: calc(100% - 56px);
+    }
+    .slide-track.slide-done .slide-label {
+      opacity: 0;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="page" id="page">
+    <a class="back-link" href="match.html">← 매칭으로</a>
+
+    <h1 class="title-samsepan" aria-hidden="true">삼세판!</h1>
+
+    <div class="score-board" aria-live="polite">
+      <div class="score-row">
+        <span class="mine">나</span>
+        <span class="num" id="myScore">0</span>
+        <span class="sep">:</span>
+        <span class="num" id="theirScore">0</span>
+        <span class="theirs">상대</span>
+      </div>
+      <div class="score-units">
+        <div class="score-unit mine">
+          <span class="unit-text" id="myUnitText" aria-label="내가 선택한 방향">좌측</span>
+          <span class="unit-info-small" id="myUnitInfo" aria-hidden="true"></span>
+        </div>
+        <div class="score-unit theirs">
+          <span class="unit-text" id="theirUnitText" aria-label="상대 방향">우측</span>
+          <span class="unit-info-small" id="theirUnitInfo" aria-hidden="true"></span>
+        </div>
+      </div>
+    </div>
+
+    <p class="round-label" id="roundLabel">1/3 · 타임 캡슐 가위바위보</p>
+
+    <p class="capsule-hint" id="capsuleHint">캡슐에 담을 패를 선택하세요.<br>상대는 캡슐을 열기 전에 자신의 패를 선택합니다.</p>
+
+    <div class="rps-buttons" role="group" aria-label="가위바위보 선택">
+      <button type="button" class="rps-btn" data-choice="scissors" aria-label="가위">✌️ 가위</button>
+      <button type="button" class="rps-btn" data-choice="rock" aria-label="바위">✊ 바위</button>
+      <button type="button" class="rps-btn" data-choice="paper" aria-label="보">🖐️ 보</button>
+    </div>
+
+    <div class="capsule-area">
+      <div class="capsule-wrap hidden" id="capsuleWrap">
+        <div class="capsule" id="capsule">
+          <div class="capsule-body"></div>
+          <div class="capsule-lid"></div>
+        </div>
+      </div>
+      <div class="reveal-area hidden" id="revealArea">
+        <div class="reveal-hands">
+          <div class="hand-card mine" id="handMine">
+            <span class="hand-emoji" id="handMineEmoji"></span>
+            <span class="hand-name" id="handMineName"></span>
+          </div>
+          <span class="vs-divider" aria-hidden="true">VS</span>
+          <div class="hand-card theirs" id="handTheirs">
+            <span class="hand-emoji" id="handTheirsEmoji"></span>
+            <span class="hand-name" id="handTheirsName"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="result-text" id="resultText" role="status"></div>
+    <div class="next-text" id="nextText"></div>
+    <button type="button" class="btn-reset hidden" id="btnReset">새 게임</button>
+  </div>
+
+  <div class="tension-overlay" id="tensionOverlay" aria-live="assertive">
+    <p class="tension-text">상대가 당신의 패를<br>확인하고 있습니다!</p>
+  </div>
+
+  <div class="celebration-overlay hidden" id="celebrationOverlay"></div>
+  <div class="result-popup hidden" id="resultPopup" aria-live="polite"></div>
+  <div class="matchpoint-overlay hidden" id="matchpointOverlay" aria-live="polite">
+    <span class="matchpoint-text">매치포인트</span>
+  </div>
+
+  <div class="lose-overlay hidden" id="loseOverlay" aria-live="polite">
+    <p class="lose-message">덕분에 상대방이 완전한 에어팟을 즐길 수 있어요 🎧<br>아, 좋은 승부였다 😇<br>😉또 다른 행운이 올거예요🍀</p>
+    <a href="index.html" class="btn-to-main">메인으로 돌아가기</a>
+  </div>
+
+  <div class="win-overlay hidden" id="winOverlay" aria-live="polite">
+    <div class="complete-airpods-wrap">
+      <img src="assets/airpods-complete.png" alt="에어팟 완전체">
+    </div>
+    <p class="win-message" id="winMessage">축하해요!<br>이제 에어팟 완전체는<br>당신의 것!</p>
+    <div class="slide-to-receive" id="slideToReceive">
+      <div class="slide-track">
+        <span class="slide-label">에어팟 수령</span>
+        <div class="slide-thumb" id="slideThumb"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="realtime.js"></script>
+  <script>
+    // URL 파라미터에서 게임 정보 가져오기
+    const params = new URLSearchParams(location.search);
+    const roomId = params.get('roomId');
+    const isHost = params.get('isHost') === 'true';
+    const mySide = params.get('mySide') || 'left';
+    const model = params.get('model') || 'AirPods Pro 2';
+    const condition = params.get('condition') || 'S';
+
+    // 방 정보가 없으면 매칭 페이지로 리다이렉트
+    if (!roomId) {
+      alert('게임 정보가 없습니다. 매칭 페이지로 이동합니다.');
+      location.href = 'match.html';
+    }
+
+    // 실시간 시스템 초기화
+    const realtime = RealtimeMatch.init();
+    realtime.joinRoom(roomId, isHost);
+
+    let opponentChoice = null;
+    let waitingForOpponent = false;
+
+    // UI 요소 초기화
+    (function applyMySide() {
+      const conditionLabels = { S: 'S급', A: 'A급', B: 'B급' };
+      const sideText = mySide === 'left' ? '좌측' : '우측';
+      const oppSideText = mySide === 'left' ? '우측' : '좌측';
+
+      const myText = document.getElementById('myUnitText');
+      const theirText = document.getElementById('theirUnitText');
+      if (myText) myText.textContent = sideText;
+      if (theirText) theirText.textContent = oppSideText;
+
+      const myInfoEl = document.getElementById('myUnitInfo');
+      const theirInfoEl = document.getElementById('theirUnitInfo');
+      if (myInfoEl) myInfoEl.textContent = model + ' · ' + sideText + ' · ' + conditionLabels[condition];
+      if (theirInfoEl) theirInfoEl.textContent = model + ' · ' + oppSideText + ' · ' + conditionLabels[condition];
+    })();
+
+    const RPS = { scissors: '가위', rock: '바위', paper: '보' };
+    const RPS_EMOJI = { scissors: '✌️', rock: '✊', paper: '🖐️' };
+
+    const getRPSResult = (mine, theirs) => {
+      if (mine === theirs) return 'draw';
+      if (
+        (mine === 'scissors' && theirs === 'paper') ||
+        (mine === 'rock' && theirs === 'scissors') ||
+        (mine === 'paper' && theirs === 'rock')
+      ) return 'win';
+      return 'lose';
+    };
+
+    let matchMyWins = 0;
+    let matchTheirWins = 0;
+    let myChoice = null;
+    let waitingForResult = false;
+
+    const myScoreEl = document.getElementById('myScore');
+    const theirScoreEl = document.getElementById('theirScore');
+    const capsuleHint = document.getElementById('capsuleHint');
+    const rpsButtons = document.querySelectorAll('.rps-btn');
+    const capsuleWrap = document.getElementById('capsuleWrap');
+    const capsule = document.getElementById('capsule');
+    const revealArea = document.getElementById('revealArea');
+    const handMineEmoji = document.getElementById('handMineEmoji');
+    const handMineName = document.getElementById('handMineName');
+    const handTheirsEmoji = document.getElementById('handTheirsEmoji');
+    const handTheirsName = document.getElementById('handTheirsName');
+    const resultText = document.getElementById('resultText');
+    const nextText = document.getElementById('nextText');
+    const btnReset = document.getElementById('btnReset');
+    const tensionOverlay = document.getElementById('tensionOverlay');
+    const pageEl = document.getElementById('page');
+    const celebrationOverlay = document.getElementById('celebrationOverlay');
+    const resultPopup = document.getElementById('resultPopup');
+    const matchpointOverlay = document.getElementById('matchpointOverlay');
+    const loseOverlay = document.getElementById('loseOverlay');
+    const winOverlay = document.getElementById('winOverlay');
+    const roundLabel = document.getElementById('roundLabel');
+
+    function updateScore() {
+      myScoreEl.textContent = matchMyWins;
+      theirScoreEl.textContent = matchTheirWins;
+    }
+
+    function resetPhase() {
+      myChoice = null;
+      opponentChoice = null;
+      waitingForResult = false;
+      waitingForOpponent = false;
+      capsuleWrap.classList.add('hidden');
+      capsuleWrap.classList.remove('visible');
+      revealArea.classList.add('hidden');
+      revealArea.classList.remove('visible');
+      capsule.classList.remove('capsule-open');
+      resultText.textContent = '';
+      resultText.className = 'result-text';
+      nextText.textContent = '';
+      nextText.style.color = '';
+      nextText.style.fontWeight = '';
+      capsuleHint.textContent = '가위, 바위, 보 중 하나를 선택하세요.\n상대방도 동시에 선택하고 있어요!';
+      capsuleHint.style.display = 'block';
+      rpsButtons.forEach((b) => { b.disabled = false; });
+      btnReset.classList.add('hidden');
+      pageEl.classList.remove('result-win', 'result-miss');
+      matchpointOverlay.classList.add('hidden');
+      matchpointOverlay.classList.remove('visible');
+      
+      // 라운드 리셋 (실시간 동기화)
+      realtime.resetRound();
+    }
+
+    function isMatchPoint() {
+      return (matchMyWins === 1 && matchTheirWins === 0) ||
+             (matchMyWins === 0 && matchTheirWins === 1) ||
+             (matchMyWins === 1 && matchTheirWins === 1);
+    }
+
+    function showMatchPointOverlay() {
+      matchpointOverlay.classList.remove('hidden');
+      matchpointOverlay.classList.add('visible');
+      setTimeout(() => {
+        matchpointOverlay.classList.remove('visible');
+        setTimeout(() => matchpointOverlay.classList.add('hidden'), 500);
+      }, 2800);
+    }
+
+    function showResultPopup(message, type) {
+      resultPopup.textContent = message;
+      resultPopup.className = 'result-popup ' + type + ' visible';
+      resultPopup.classList.remove('hidden');
+      setTimeout(() => {
+        resultPopup.classList.add('hiding');
+        setTimeout(() => {
+          resultPopup.classList.remove('visible', 'hiding', 'win', 'miss', 'draw');
+          resultPopup.classList.add('hidden');
+        }, 400);
+      }, 1800);
+    }
+
+    function showCelebration(isFinalWin) {
+      celebrationOverlay.classList.remove('hidden');
+      celebrationOverlay.classList.add('visible');
+      const colors = ['#f1c40f', '#e67e22', '#e74c3c', '#fff', '#2ecc71'];
+      const className = isFinalWin ? 'confetti' : 'confetti-once';
+      for (let i = 0; i < 50; i++) {
+        const c = document.createElement('div');
+        c.className = className;
+        c.style.left = Math.random() * 100 + '%';
+        c.style.background = colors[Math.floor(Math.random() * colors.length)];
+        c.style.animationDelay = Math.random() * (isFinalWin ? 2 : 0.5) + 's';
+        c.style.animationDuration = (isFinalWin ? 2.5 + Math.random() : 1.5 + Math.random()) + 's';
+        celebrationOverlay.appendChild(c);
+      }
+      if (!isFinalWin) {
+        setTimeout(() => {
+          celebrationOverlay.classList.remove('visible');
+          celebrationOverlay.innerHTML = '';
+        }, 3500);
+      }
+    }
+
+    function showLoseAnimation() {
+      nextText.textContent = '';
+      loseOverlay.classList.remove('hidden');
+      loseOverlay.classList.add('visible');
+    }
+
+    function showWinAnimation() {
+      nextText.textContent = '';
+      winOverlay.classList.remove('hidden');
+      winOverlay.classList.add('visible');
+      showCelebration(true);
+    }
+
+    // 선택 처리 (실시간)
+    function sendChoice(choice) {
+      myChoice = choice;
+      rpsButtons.forEach((b) => { b.disabled = true; });
+      capsuleHint.textContent = '선택 완료! 상대방을 기다리는 중...';
+      capsuleWrap.classList.remove('hidden');
+      capsuleWrap.classList.add('visible');
+      
+      // 실시간으로 상대에게 전송
+      realtime.sendChoice(choice);
+      waitingForOpponent = true;
+
+      // 상대가 이미 선택했으면 결과 처리
+      if (opponentChoice) {
+        setTimeout(() => {
+          processResult(myChoice, opponentChoice);
+          opponentChoice = null;
+        }, 500);
+      }
+    }
+
+    // 상대 선택 수신
+    realtime.onOpponentChoice = function(choice) {
+      opponentChoice = choice;
+      
+      // 내가 이미 선택했으면 결과 처리
+      if (myChoice && waitingForOpponent) {
+        setTimeout(() => {
+          processResult(myChoice, opponentChoice);
+          opponentChoice = null;
+        }, 500);
+      }
+    };
+
+    // 상대가 나감
+    realtime.onOpponentLeft = function() {
+      alert('상대방이 게임을 떠났습니다.');
+      location.href = 'match.html';
+    };
+
+    // 결과 처리
+    function processResult(myRealChoice, theirChoice) {
+      if (waitingForResult) return;
+      waitingForResult = true;
+
+      tensionOverlay.classList.add('visible');
+      
+      setTimeout(() => {
+        tensionOverlay.classList.remove('visible');
+        capsule.classList.add('capsule-open');
+        capsuleHint.style.display = 'none';
+
+        setTimeout(() => {
+          capsuleWrap.classList.remove('visible');
+          capsuleWrap.classList.add('hidden');
+          
+          handMineEmoji.textContent = RPS_EMOJI[myRealChoice];
+          handMineName.textContent = '나 · ' + RPS[myRealChoice];
+          handTheirsEmoji.textContent = RPS_EMOJI[theirChoice];
+          handTheirsName.textContent = '상대 · ' + RPS[theirChoice];
+          revealArea.classList.remove('hidden');
+          revealArea.classList.add('visible');
+
+          const result = getRPSResult(myRealChoice, theirChoice);
+          resultText.className = 'result-text ' + (result === 'lose' ? 'miss' : result);
+          pageEl.classList.add('result-' + (result === 'lose' ? 'miss' : result));
+
+          if (result === 'win') {
+            showResultPopup('이겼습니다!', 'win');
+            matchMyWins += 1;
+            updateScore();
+            
+            if (matchMyWins >= 2) {
+              setTimeout(() => showWinAnimation(), 2200);
+              return;
+            }
+            showCelebration();
+            resultText.textContent = '✨ 이번 라운드 승리!';
+            nextText.textContent = matchMyWins + '승! 한 판 더 이기면 완전체의 주인.';
+            nextText.style.fontWeight = '600';
+            
+            if (isMatchPoint()) {
+              setTimeout(() => showMatchPointOverlay(), 2000);
+              setTimeout(() => { capsuleHint.style.display = ''; resetPhase(); }, 5600);
+            } else {
+              setTimeout(() => { capsuleHint.style.display = ''; resetPhase(); }, 3000);
+            }
+            return;
+          }
+          
+          if (result === 'lose') {
+            showResultPopup('패배!!', 'miss');
+            matchTheirWins += 1;
+            updateScore();
+            
+            if (matchTheirWins >= 2) {
+              resultText.textContent = '';
+              setTimeout(() => showLoseAnimation(), 2200);
+              return;
+            }
+            resultText.textContent = '😰 이번 라운드 패배...';
+            nextText.textContent = matchTheirWins === 1 && matchMyWins === 0 ? '0:1. 한 판 더 이기면 동점.' : '1:1. 다음 판이 최종전!';
+            nextText.style.fontWeight = '600';
+            
+            if (isMatchPoint()) {
+              setTimeout(() => showMatchPointOverlay(), 2000);
+              setTimeout(() => { capsuleHint.style.display = ''; resetPhase(); }, 5600);
+            } else {
+              setTimeout(() => { capsuleHint.style.display = ''; resetPhase(); }, 3000);
+            }
+            return;
+          }
+          
+          // 무승부
+          showResultPopup('무승부', 'draw');
+          resultText.textContent = '🤝 비겼어요!';
+          nextText.textContent = '다시 선택해주세요.';
+          setTimeout(() => { capsuleHint.style.display = ''; resetPhase(); }, 2500);
+        }, 650);
+      }, 1500);
+    }
+
+    // 라운드 표시 업데이트
+    roundLabel.textContent = '1/3 · 가위바위보';
+
+    // 버튼 클릭 이벤트
+    rpsButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (myChoice) return; // 이미 선택함
+        const choice = btn.dataset.choice;
+        sendChoice(choice);
+      });
+    });
+
+    // 새 게임 버튼 (숨김 처리)
+    btnReset.classList.add('hidden');
+
+    // 페이지 떠날 때 처리
+    window.addEventListener('beforeunload', () => {
+      realtime.leave();
+    });
+
+    // 에어팟 수령 슬라이더
+    (function initSlideToReceive() {
+      const track = document.querySelector('.slide-track');
+      const thumb = document.getElementById('slideThumb');
+      if (!track || !thumb) return;
+      const getThumbLeft = () => parseInt(thumb.style.left, 10) || 4;
+      const trackRect = () => track.getBoundingClientRect();
+      const maxLeft = () => trackRect().width - thumb.offsetWidth - 8;
+      let dragging = false;
+      let startX = 0;
+      let startLeft = 0;
+
+      function setThumbLeft(px) {
+        const m = maxLeft();
+        const left = Math.max(4, Math.min(m, px));
+        thumb.style.left = left + 'px';
+        if (left >= m - 2) {
+          track.classList.add('slide-done');
+          // 승자 정보와 함께 결제 페이지로 이동
+          const receiptParams = new URLSearchParams({
+            roomId: roomId,
+            winner: isHost ? 'host' : 'guest'
+          });
+          setTimeout(() => { location.href = 'receipt.html?' + receiptParams.toString(); }, 200);
+        }
+      }
+
+      thumb.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        dragging = true;
+        startX = e.clientX;
+        startLeft = getThumbLeft();
+      });
+      thumb.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        dragging = true;
+        startX = e.touches[0].clientX;
+        startLeft = getThumbLeft();
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        setThumbLeft(startLeft + (e.clientX - startX));
+      });
+      document.addEventListener('touchmove', (e) => {
+        if (!dragging) return;
+        setThumbLeft(startLeft + (e.touches[0].clientX - startX));
+      }, { passive: false });
+
+      document.addEventListener('mouseup', () => { dragging = false; });
+      document.addEventListener('touchend', () => { dragging = false; });
+    })();
+
+    updateScore();
+    capsuleHint.textContent = '가위, 바위, 보 중 하나를 선택하세요.\n상대방도 동시에 선택하고 있어요!';
+  </script>
+</body>
+</html>
