@@ -315,6 +315,7 @@
     <a href="match.html" class="btn-back">매칭 화면으로 돌아가기</a>
   </div>
 
+  <script src="realtime.js"></script>
   <script>
     (function () {
       const key = 'matchPending';
@@ -342,44 +343,50 @@
         return;
       }
 
-      // 테스트 모드: 3초 후 자동으로 게임방 입장
-      function startTestMatch() {
-        loadingText.textContent = '매칭 중...';
-        loadingSub.textContent = '상대를 찾고 있어요...';
+      // 실시간 매칭 시스템 초기화
+      const realtime = RealtimeMatch.init();
 
-        // 매칭 애니메이션
-        setTimeout(() => {
-          loadingText.textContent = '상대 발견!';
-          loadingSub.textContent = '게임방을 준비하고 있어요...';
-        }, 1500);
+      // 매칭 찾기 시작
+      loadingText.textContent = '매칭 중...';
+      loadingSub.textContent = '다른 플레이어를 찾고 있어요... (새 탭을 열어서 매칭해보세요!)';
 
-        // 3초 후 매칭 완료
+      realtime.findMatch(myData);
+
+      // 매칭 성공 콜백
+      realtime.onMatchFound = function(roomId, isHost, opponentData) {
+        loadingText.textContent = '매칭 완료!';
+        loadingSub.textContent = '상대를 찾았어요!';
+
+        // 게임 데이터 저장
+        sessionStorage.setItem('gameRoom', JSON.stringify({
+          roomId: roomId,
+          isHost: isHost,
+          myData: myData,
+          opponentData: opponentData
+        }));
+
+        // UI 업데이트
         setTimeout(() => {
-          const roomId = 'test_room_' + Date.now();
+          matchingSide.classList.add('complete');
+          completeDesc.innerHTML = '실시간 상대를 찾았어요!<br>가위바위보 3판 2선승으로 승부합니다.';
           
-          loadingText.textContent = '매칭 완료!';
-          loadingSub.textContent = '상대를 찾았어요!';
+          const params = new URLSearchParams({
+            roomId: roomId,
+            isHost: isHost,
+            mySide: myData.mySide,
+            model: myData.model,
+            condition: myData.condition
+          });
+          btnGameEntry.href = 'destiny.html?' + params.toString();
+        }, 500);
+      };
 
-          // UI 업데이트
-          setTimeout(() => {
-            matchingSide.classList.add('complete');
-            completeDesc.innerHTML = '상대를 찾았어요!<br>게임에서 이기면 에어팟 완전체를 받을 수 있어요.';
-            
-            const params = new URLSearchParams({
-              roomId: roomId,
-              isHost: 'true',
-              mySide: myData.mySide,
-              model: myData.model,
-              condition: myData.condition,
-              testMode: 'true'
-            });
-            btnGameEntry.href = 'destiny.html?' + params.toString();
-          }, 500);
-        }, 3000);
-      }
-
-      // 매칭 시작
-      startTestMatch();
+      // 30초 후 안내 메시지
+      setTimeout(() => {
+        if (!matchingSide.classList.contains('complete')) {
+          loadingSub.textContent = '💡 새 탭을 열고 같은 모델의 반대쪽을 선택해서 매칭해보세요!';
+        }
+      }, 5000);
     })();
   </script>
 </body>

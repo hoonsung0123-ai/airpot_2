@@ -885,6 +885,7 @@
     </div>
   </div>
 
+  <script src="realtime.js"></script>
   <script>
     // URL 파라미터에서 게임 정보 가져오기
     const params = new URLSearchParams(location.search);
@@ -893,13 +894,19 @@
     const mySide = params.get('mySide') || 'left';
     const model = params.get('model') || 'AirPods Pro 2';
     const condition = params.get('condition') || 'S';
-    const testMode = params.get('testMode') === 'true';
 
     // 방 정보가 없으면 매칭 페이지로 리다이렉트
     if (!roomId) {
       alert('게임 정보가 없습니다. 매칭 페이지로 이동합니다.');
       location.href = 'match.html';
     }
+
+    // 실시간 시스템 초기화
+    const realtime = RealtimeMatch.init();
+    realtime.joinRoom(roomId, isHost);
+
+    let opponentChoice = null;
+    let waitingForOpponent = false;
 
     // UI 요소 초기화
     (function applyMySide() {
@@ -966,7 +973,9 @@
 
     function resetPhase() {
       myChoice = null;
+      opponentChoice = null;
       waitingForResult = false;
+      waitingForOpponent = false;
       capsuleWrap.classList.add('hidden');
       capsuleWrap.classList.remove('visible');
       revealArea.classList.add('hidden');
@@ -1049,13 +1058,7 @@
       showCelebration(true);
     }
 
-    // AI 상대의 선택 (테스트 모드)
-    const RPS_KEYS = ['scissors', 'rock', 'paper'];
-    function getAIChoice() {
-      return RPS_KEYS[Math.floor(Math.random() * RPS_KEYS.length)];
-    }
-
-    // 선택 처리
+    // 선택 처리 (실시간)
     function sendChoice(choice) {
       myChoice = choice;
       rpsButtons.forEach((b) => { b.disabled = true; });
@@ -1063,12 +1066,37 @@
       capsuleWrap.classList.remove('hidden');
       capsuleWrap.classList.add('visible');
       
-      // 테스트 모드: AI 상대 선택 후 결과 처리
-      setTimeout(() => {
-        const aiChoice = getAIChoice();
-        processResult(choice, aiChoice);
-      }, 1500);
+      // 실시간으로 상대에게 전송
+      realtime.sendChoice(choice);
+      waitingForOpponent = true;
+
+      // 상대가 이미 선택했으면 결과 처리
+      if (opponentChoice) {
+        setTimeout(() => {
+          processResult(myChoice, opponentChoice);
+          opponentChoice = null;
+        }, 500);
+      }
     }
+
+    // 상대 선택 수신
+    realtime.onOpponentChoice = function(choice) {
+      opponentChoice = choice;
+      
+      // 내가 이미 선택했으면 결과 처리
+      if (myChoice && waitingForOpponent) {
+        setTimeout(() => {
+          processResult(myChoice, opponentChoice);
+          opponentChoice = null;
+        }, 500);
+      }
+    };
+
+    // 상대가 나감
+    realtime.onOpponentLeft = function() {
+      alert('상대방이 게임을 떠났습니다.');
+      location.href = 'match.html';
+    };
 
     // 결과 처리
     function processResult(myRealChoice, theirChoice) {
