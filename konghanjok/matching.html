@@ -346,16 +346,58 @@
       // 실시간 매칭 시스템 초기화
       const realtime = RealtimeMatch.init();
 
+      // 내 정보 표시
+      const mySideText = myData.mySide === 'left' ? '좌측' : '우측';
+      const needSideText = myData.needSide === 'left' ? '좌측' : '우측';
+      
       // 매칭 찾기 시작
       loadingText.textContent = '매칭 중...';
-      loadingSub.textContent = '다른 플레이어를 찾고 있어요... (새 탭을 열어서 매칭해보세요!)';
+      loadingSub.innerHTML = '내 정보: <b>' + myData.model + '</b> · <b>' + mySideText + '</b> 보유<br>' +
+        '찾는 상대: <b>' + needSideText + '</b> 보유자<br><br>' +
+        '💡 <a href="match.html" target="_blank" style="color:#c0392b;font-weight:bold;">새 탭</a>을 열고 <b>' + needSideText + '</b>을 선택해서 테스트하세요!';
 
       realtime.findMatch(myData);
 
+      // 대기열 상태 체크
+      let statusCheckCount = 0;
+      const statusInterval = setInterval(() => {
+        if (matchingSide.classList.contains('complete')) {
+          clearInterval(statusInterval);
+          return;
+        }
+        
+        statusCheckCount++;
+        const queue = realtime.getQueue();
+        const now = Date.now();
+        const activeQueue = queue.filter(p => !p.roomId && now - p.timestamp < 60000);
+        
+        if (activeQueue.length > 0 && !matchingSide.classList.contains('complete')) {
+          let statusHtml = '내 정보: <b>' + myData.model + '</b> · <b>' + mySideText + '</b> 보유<br>' +
+            '찾는 상대: <b>' + needSideText + '</b> 보유자<br><br>' +
+            '🔍 현재 대기열: <b>' + activeQueue.length + '</b>명<br>';
+          
+          // 매칭 가능한 상대가 있는지 체크
+          const matchableOpponent = activeQueue.find(p => 
+            p.playerId !== realtime.myId &&
+            p.model === myData.model &&
+            p.mySide === myData.needSide
+          );
+          
+          if (matchableOpponent) {
+            statusHtml += '<span style="color:#27ae60;">✓ 매칭 가능한 상대 발견! 잠시만 기다려주세요...</span>';
+          } else {
+            statusHtml += '💡 <a href="match.html" target="_blank" style="color:#c0392b;font-weight:bold;">새 탭</a>을 열고 <b>' + needSideText + '</b>을 선택하세요!';
+          }
+          
+          loadingSub.innerHTML = statusHtml;
+        }
+      }, 1000);
+
       // 매칭 성공 콜백
       realtime.onMatchFound = function(roomId, isHost, opponentData) {
-        loadingText.textContent = '매칭 완료!';
-        loadingSub.textContent = '상대를 찾았어요!';
+        clearInterval(statusInterval);
+        loadingText.textContent = '🎉 매칭 완료!';
+        loadingSub.innerHTML = '<span style="color:#27ae60;font-weight:bold;">상대를 찾았어요!</span>';
 
         // 게임 데이터 저장
         sessionStorage.setItem('gameRoom', JSON.stringify({
@@ -380,13 +422,6 @@
           btnGameEntry.href = 'destiny.html?' + params.toString();
         }, 500);
       };
-
-      // 30초 후 안내 메시지
-      setTimeout(() => {
-        if (!matchingSide.classList.contains('complete')) {
-          loadingSub.textContent = '💡 새 탭을 열고 같은 모델의 반대쪽을 선택해서 매칭해보세요!';
-        }
-      }, 5000);
     })();
   </script>
 </body>

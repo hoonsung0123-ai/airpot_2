@@ -178,7 +178,7 @@ const RealtimeMatch = {
       return;
     }
     
-    // 매칭 가능한 상대 찾기
+    // 매칭 가능한 상대 찾기 (모델만 일치하면 매칭)
     const opponent = queue.find(p => 
       p.playerId !== this.myId &&
       !p.roomId &&
@@ -191,6 +191,15 @@ const RealtimeMatch = {
     if (opponent) {
       console.log('[RealtimeMatch] 상대 발견!', opponent.playerId);
       this.createRoom(opponent);
+    } else {
+      // 대기열 상태 로그
+      const waitingPlayers = queue.filter(p => !p.roomId && now - p.timestamp < 60000);
+      if (waitingPlayers.length > 1) {
+        console.log('[RealtimeMatch] 대기 중인 플레이어:', waitingPlayers.length, '명');
+        waitingPlayers.forEach(p => {
+          console.log('  -', p.playerId.substr(0, 15), '모델:', p.model, '보유:', p.mySide, '필요:', p.needSide);
+        });
+      }
     }
   },
 
